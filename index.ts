@@ -105,13 +105,14 @@ await Promise.all(allowedDirectories.map(async (dir) => {
 // Initialize the global allowedDirectories in lib.ts
 setAllowedDirectories(allowedDirectories);
 
-// File watching state for ask_review
-let lastFileModified: number | null = null;
-let fileWatcher: FSWatcher | null = null;
+// File watching state for check_review (support multiple files)
+const lastFileModifiedByPath: Map<string, number> = new Map();
+const fileWatchers: Map<string, FSWatcher> = new Map();
 const connectedTransports: Set<SSEServerTransport> = new Set();
 
-// Waiting mechanism for ask_review
+// Waiting mechanism for check_review
 const waitingForFileChange: Array<{
+  path: string;
   resolve: (content: string) => void;
   reject: (error: Error) => void;
 }> = [];
@@ -122,11 +123,12 @@ let isInitialized = false;
 // Schema definitions
 
 const AskReviewArgsSchema = z.object({
+  path: z.string().optional().describe('Absolute or relative path to the feedback file within allowed directories. Defaults to feedback.md in the current working directory.'),
   tail: z.number().optional().describe('If provided, returns only the last N lines of the review file'),
   head: z.number().optional().describe('If provided, returns only the first N lines of the review file')
 });
 
-const ReadMediaFileArgsSchema = z.object({
+const ReadImageFileArgsSchema = z.object({
   path: z.string()
 });
 
@@ -151,15 +153,16 @@ const server = new Server(
 async function ensureInitialized() {
   if (!isInitialized) {
     console.error("Initializing TaskSync server components...");
-    await setupFileWatcher();
+    const defaultFeedbackPath = path.join(process.cwd(), 'feedback.md');
+    await setupFileWatcher(defaultFeedbackPath, true);
     isInitialized = true;
     console.error("TaskSync server initialized successfully");
   }
 }
 
 // File watching functions
-async function setupFileWatcher() {
-  const reviewPath = path.join(process.cwd(),'review.md');
+async function setupFileWatcher(filePath: string, createIfMissing: boolean = false) {
+  const reviewPath = filePath;
 
   try {
     // Check if file exists, create if it doesn't
@@ -167,52 +170,70 @@ async function setupFileWatcher() {
       await fs.access(reviewPath);
       console.error(`File exists: ${reviewPath}`);
     } catch {
-      console.error(`Creating file: ${reviewPath}`);
-      await fs.mkdir(path.dirname(reviewPath), { recursive: true });
-      await fs.writeFile(reviewPath, 'No review content yet.');
+      if (createIfMissing) {
+        console.error(`Creating file: ${reviewPath}`);
+        await fs.mkdir(path.dirname(reviewPath), { recursive: true });
+        await fs.writeFile(reviewPath, 'No review content yet.');
+      } else {
+        // If not creating, just skip watcher setup for missing file
+        console.error(`File does not exist, skipping watcher: ${reviewPath}`);
+        return;
+      }
     }
 
     // Get initial modification time
     const stats = await fs.stat(reviewPath);
-    lastFileModified = stats.mtime.getTime();
-    console.error(`Initial file modification time: ${lastFileModified}`);
+    const mtime = stats.mtime.getTime();
+    lastFileModifiedByPath.set(reviewPath, mtime);
+    console.error(`Initial file modification time for ${reviewPath}: ${mtime}`);
 
     // Setup file watcher
-    fileWatcher = watch(reviewPath, async (eventType, filename) => {
-      console.error(`File watcher event: ${eventType} for ${filename}`);
-      if (eventType === 'change') {
-        console.error('File change detected, notifying clients...');
-        await notifyClientsOfFileChange();
-      }
-    });
-
-    console.error(`File watcher setup successfully for: ${reviewPath}`);
+    if (!fileWatchers.has(reviewPath)) {
+      const watcher = watch(reviewPath, async (eventType, filename) => {
+        console.error(`File watcher event: ${eventType} for ${filename}`);
+        if (eventType === 'change') {
+          console.error(`File change detected for ${reviewPath}, notifying clients...`);
+          await notifyClientsOfFileChange(reviewPath);
+        }
+      });
+      fileWatchers.set(reviewPath, watcher);
+      console.error(`File watcher setup successfully for: ${reviewPath}`);
+    }
   } catch (error) {
     console.error(`Failed to setup file watcher: ${error}`);
     throw error; // Re-throw to see the error in the main process
   }
 }
 
-async function notifyClientsOfFileChange() {
+async function notifyClientsOfFileChange(filePath: string) {
   try {
-    const reviewPath = path.join(process.cwd(),'review.md');
+    const reviewPath = filePath;
     const stats = await fs.stat(reviewPath);
     const currentModified = stats.mtime.getTime();
 
-    if (lastFileModified === currentModified) {
+    if (lastFileModifiedByPath.get(reviewPath) === currentModified) {
       return; // No actual change
     }
 
-    console.error(`File change detected: ${lastFileModified} -> ${currentModified}`);
-    lastFileModified = currentModified;
+    console.error(`File change detected for ${reviewPath}: ${lastFileModifiedByPath.get(reviewPath)} -> ${currentModified}`);
+    lastFileModifiedByPath.set(reviewPath, currentModified);
     const content = await readFileContent(reviewPath);
 
-    // Resolve all waiting ask_review calls
-    const waitingCalls = waitingForFileChange.splice(0);
-    console.error(`Resolving ${waitingCalls.length} waiting calls`);
-    for (const { resolve } of waitingCalls) {
-      resolve(content);
+    // Resolve all waiting check_review calls
+    const remaining: typeof waitingForFileChange = [];
+    let resolvedCount = 0;
+    for (const item of waitingForFileChange) {
+      if (item.path === reviewPath) {
+        item.resolve(content);
+        resolvedCount++;
+      } else {
+        remaining.push(item);
+      }
     }
+    // Replace queue with remaining items
+    waitingForFileChange.length = 0;
+    waitingForFileChange.push(...remaining);
+    console.error(`Resolving ${resolvedCount} waiting calls for ${reviewPath}`);
 
     // Send notification to all connected clients
     for (const transport of connectedTransports) {
@@ -225,7 +246,7 @@ async function notifyClientsOfFileChange() {
             logger: "tasksync-server",
             data: {
               type: "file_changed",
-              path: "review.md",
+              path: path.relative(process.cwd(), reviewPath) || reviewPath,
               content: content,
               timestamp: new Date().toISOString()
             }
@@ -236,7 +257,7 @@ async function notifyClientsOfFileChange() {
       }
     }
 
-    console.error(`File change notification sent to ${connectedTransports.size} clients and ${waitingCalls.length} waiting calls resolved`);
+    console.error(`File change notification sent to ${connectedTransports.size} clients and ${resolvedCount} waiting calls resolved for ${reviewPath}`);
   } catch (error) {
     console.error(`Error in notifyClientsOfFileChange: ${error}`);
   }
@@ -265,13 +286,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "ask_review",
+        name: "get_feedback",
         description:
-          "Read the contents of the review.md file specifically for getting review." +
-          "During any process, task, or conversation, whether asking, replying, or completing phased tasks, you must call this tool to ask for review. " +
+          "Read the contents of a feedback.md file (defaults to ./feedback.md). Before calling this tool you must seearch for the feedback.md file." +
+          "If the feedback file does not exist, you will automatically create an empty feedback.md file before attempting to use this tool. " +
+          "During any process, task, or conversation, whether asking, replying, or completing phased tasks, you must call this tool to check for review. " +
           "Only when the user explicitly indicates <end or no more interaction needed> can you stop calling this tool, and the process is considered complete.\n\n" +
           "MANDATORY USAGE RULES -PRIMARY DIRECTIVE:\n" +
-          "1. CONTINUOUS FEEDBACK LOOP: During any process, task, or conversation, whether asking, replying, or completing phased tasks, you MUST call this tool to ask for feedback.\n" +
+          "1. CONTINUOUS FEEDBACK LOOP: During any process, task, or conversation, whether asking, replying, or completing phased tasks, you MUST call this tool to check for feedback.\n" +
           "2. NO STOPPING WITHOUT PERMISSION: Unless receiving explicit termination instructions (\"end\", \"stop\", \"no more interaction needed\"), ALL steps must repeatedly call this tool.\n" +
           "3. RESPOND TO FEEDBACK: Whenever user feedback is received, if the feedback content is not empty, you MUST call this tool again and adjust behavior based on the feedback content.\n" +
           "4. TERMINATION CONDITIONS: Only when the user explicitly indicates \"end\", \"stop\", \"finished\", or \"no more interaction needed\" can you stop calling this tool.\n" +
@@ -284,17 +306,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "view_media",
         description:
-          "Read an image or audio file. Returns the base64 encoded data and MIME type. " +
+          "Read an image file. Returns the base64 encoded data and MIME type. " +
           "Only works within allowed directories.\n\n" +
           "SUPPORTED FORMATS:\n" +
-          "Images: PNG, JPEG, GIF, WebP, BMP, SVG\n" +
-          "Audio: MP3, WAV, OGG, FLAC\n\n" +
+          "Images: PNG, JPEG, GIF, WebP, BMP, SVG\n\n" +
           "USAGE:\n" +
-          "Use this tool to read and encode binary media files for analysis, display, or processing. " +
+          "Use this tool to read and encode image files for analysis, display, or processing. " +
           "The tool streams files efficiently and returns base64-encoded data with proper MIME type detection.\n\n" +
           "Args:\n" +
-          "    path: Absolute or relative path to the media file within allowed directories",
-        inputSchema: zodToJsonSchema(ReadMediaFileArgsSchema) as ToolInput,
+          "    path: Absolute or relative path to the image file within allowed directories",
+        inputSchema: zodToJsonSchema(ReadImageFileArgsSchema) as ToolInput,
       },
     ],
   };
@@ -308,26 +329,49 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
     switch (name) {
-      case "ask_review": {
+      case "get_feedback": {
         const parsed = AskReviewArgsSchema.safeParse(args);
         if (!parsed.success) {
-          throw new Error(`Invalid arguments for ask_review: ${parsed.error}`);
+          throw new Error(`Invalid arguments for get_feedback: ${parsed.error}`);
         }
+        // Determine path: use provided path if any, else default to ./feedback.md
+        const providedPath = parsed.data.path;
+        const targetPath = providedPath ? providedPath : path.join(process.cwd(), 'feedback.md');
+        
+        // Create feedback.md file if it doesn't exist (only for default feedback.md, not custom paths)
+        if (!providedPath) {
+          try {
+            await fs.access(targetPath);
+          } catch (error) {
+            // File doesn't exist, create it with empty content
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+              try {
+                await fs.writeFile(targetPath, '', 'utf-8');
+                console.error(`Created missing feedback file: ${targetPath}`);
+              } catch (writeError) {
+                console.error(`Failed to create feedback file: ${writeError}`);
+                throw new Error(`Could not create feedback file: ${targetPath}`);
+              }
+            }
+          }
+        }
+        
+        const validPath = await validatePath(targetPath);
 
-        // Hardcode the path to review.md in the tools directory
-        const reviewPath = path.join(process.cwd(),'review.md');
-        const validPath = await validatePath(reviewPath);
-
-        // Get current file stats
-        const stats = await fs.stat(validPath);
+  // Get current file stats
+  const stats = await fs.stat(validPath);
         const currentModified = stats.mtime.getTime();
 
-        console.error(`ask_review: Current file modified: ${currentModified}, Last known: ${lastFileModified}`);
+  // Ensure a watcher exists for this path (do not create file if missing)
+  await setupFileWatcher(validPath, false);
+
+  const lastKnown = lastFileModifiedByPath.get(validPath) ?? null;
+  console.error(`check_review: Current file modified: ${currentModified}, Last known: ${lastKnown}`);
 
         // If this is the first call or file has changed, return content immediately
-        if (lastFileModified === null || lastFileModified < currentModified) {
-          console.error("ask_review: File has changed, returning content immediately");
-          lastFileModified = currentModified;
+        if (lastKnown === null || lastKnown < currentModified) {
+          console.error("check_review: File has changed, returning content immediately");
+          lastFileModifiedByPath.set(validPath, currentModified);
 
           if (parsed.data.head && parsed.data.tail) {
             throw new Error("Cannot specify both head and tail parameters simultaneously");
@@ -354,8 +398,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // File hasn't changed - wait for file change using file watcher
-        console.error("ask_review: File hasn't changed, waiting for modification...");
-        console.error(`ask_review: Current waiting queue size: ${waitingForFileChange.length}`);
+        console.error("check_review: File hasn't changed, waiting for modification...");
+        console.error(`check_review: Current waiting queue size: ${waitingForFileChange.length}`);
         
         const content = await new Promise<string>((resolve, reject) => {
           const timeout = setTimeout(() => {
@@ -363,24 +407,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             if (index !== -1) {
               waitingForFileChange.splice(index, 1);
             }
-            console.error("ask_review: Timeout reached after 5 minutes");
+            console.error("check_review: Timeout reached after 5 minutes");
             reject(new Error("Timeout waiting for file change (5 minutes)"));
           }, 300000); // 5 minute timeout
 
-          console.error("ask_review: Adding to waiting queue");
+          console.error("check_review: Adding to waiting queue");
           waitingForFileChange.push({
+            path: validPath,
             resolve: (content: string) => {
-              console.error("ask_review: Promise resolved with content");
+              console.error("check_review: Promise resolved with content");
               clearTimeout(timeout);
               resolve(content);
             },
             reject: (error: Error) => {
-              console.error(`ask_review: Promise rejected with error: ${error.message}`);
+              console.error(`check_review: Promise rejected with error: ${error.message}`);
               clearTimeout(timeout);
               reject(error);
             }
           });
-          console.error(`ask_review: Updated waiting queue size: ${waitingForFileChange.length}`);
+          console.error(`check_review: Updated waiting queue size: ${waitingForFileChange.length}`);
         });
 
         // Apply head/tail filtering if requested
@@ -412,7 +457,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // It will be re-enabled once the blocking mechanism works properly
         /*
         // File hasn't changed - wait for file change
-        console.error("ask_review: Waiting for file change...");
+        console.error("check_review: Waiting for file change...");
         console.error(`Current waiting queue size: ${waitingForFileChange.length}`);
         console.error(`File watcher status: ${fileWatcher ? 'ACTIVE' : 'INACTIVE'}`);
 
@@ -423,19 +468,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             if (index !== -1) {
               waitingForFileChange.splice(index, 1);
             }
-            console.error("ask_review: Timeout reached, rejecting promise");
+            console.error("check_review: Timeout reached, rejecting promise");
             reject(new Error("Timeout waiting for file change (60 seconds)"));
           }, 60000); // 60 second timeout
 
-          console.error("ask_review: Adding to waiting queue");
+          console.error("check_review: Adding to waiting queue");
           waitingForFileChange.push({
             resolve: (content: string) => {
-              console.error("ask_review: Promise resolved with content");
+              console.error("check_review: Promise resolved with content");
               clearTimeout(timeout);
               resolve(content);
             },
             reject: (error: Error) => {
-              console.error(`ask_review: Promise rejected with error: ${error.message}`);
+              console.error(`check_review: Promise rejected with error: ${error.message}`);
               clearTimeout(timeout);
               reject(error);
             }
@@ -471,7 +516,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "view_media": {
-        const parsed = ReadMediaFileArgsSchema.safeParse(args);
+        const parsed = ReadImageFileArgsSchema.safeParse(args);
         if (!parsed.success) {
           throw new Error(`Invalid arguments for view_media: ${parsed.error}`);
         }
@@ -485,18 +530,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ".webp": "image/webp",
           ".bmp": "image/bmp",
           ".svg": "image/svg+xml",
-          ".mp3": "audio/mpeg",
-          ".wav": "audio/wav",
-          ".ogg": "audio/ogg",
-          ".flac": "audio/flac",
         };
         const mimeType = mimeTypes[extension] || "application/octet-stream";
         const data = await readFileAsBase64Stream(validPath);
-        const type = mimeType.startsWith("image/")
-          ? "image"
-          : mimeType.startsWith("audio/")
-            ? "audio"
-            : "blob";
+        const type = mimeType.startsWith("image/") ? "image" : "blob";
         return {
           content: [{ type, data, mimeType }],
         };
@@ -627,30 +664,33 @@ async function runSSEServer() {
   app.get("/health", (req, res) => {
     res.json({
       status: "ok",
-      server: "tasksync-mcp-server",
+      server: "tasksync-mcp",
       version: "1.0.0",
       connections: connectedTransports.size,
       allowedDirectories: allowedDirectories.length
     });
   });
 
-  // Setup file watcher
-  await setupFileWatcher();
+  // Setup file watcher for default review file
+  await setupFileWatcher(path.join(process.cwd(), 'feedback.md'), true);
 
   app.listen(ssePort, () => {
     console.error(`TaskSync MCP Server running on SSE at http://localhost:${ssePort}`);
     console.error(`SSE endpoint: http://localhost:${ssePort}/sse`);
     console.error(`Health check: http://localhost:${ssePort}/health`);
     console.error(`Allowed directories: ${allowedDirectories.join(', ')}`);
-    console.error(`File watcher active for: review.md`);
+    console.error(`File watcher active for: feedback.md`);
   });
 }
 
 // Cleanup on exit
 process.on('SIGINT', () => {
   console.error('\nShutting down server...');
-  if (fileWatcher) {
-    fileWatcher.close();
+  for (const [watchedPath, watcher] of fileWatchers.entries()) {
+    try {
+      watcher.close();
+      console.error(`Closed watcher for ${watchedPath}`);
+    } catch {}
   }
   process.exit(0);
 });

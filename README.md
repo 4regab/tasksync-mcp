@@ -2,6 +2,7 @@
 
  TaskSync provides tools for interactive user feedback and command execution in AI-assisted development with image view support.
 
+
 ## 🌟 Key Features
 
 #### 🔄 Continuous Review Feedback
@@ -15,7 +16,9 @@
 - Supports image formats: PNG, JPEG, GIF, WebP, BMP, SVG
 - Efficient streaming for large files with proper MIME type detection
 
-## 🛠️ Setup
+## 🛠️ Quick Setup
+
+</details>
 
 Add to `mcp.json`:
 ```json
@@ -23,50 +26,32 @@ Add to `mcp.json`:
   "mcpServers": {
     "tasksync": {
       "command": "npx",
-      "args": ["-y", "tasksync-mcp@latest", "/path/to/directory"]
+      "args": ["-y", "tasksync-mcp-server@latest", "/path/to/workspace"]
     }
   }
 }
 ```
+</details>
 
-For VS Code:
-```json
-{
-	"servers": {
-    "tasksync": {
-      "command": "npx",
-		"type": "stdio",
-      	"args": ["-y", "tasksync-mcp@latest", "/path/to/directory"]
-    }
-  }
-}
+## 🔨 Available Tools
+
+- **get_feedback** - Read feedback.md file for user review/feedback (creates file if missing)
+- **view_media** - Read image (returns base64 with MIME type)
+
+## 🛟 Best Practices
+
+### Agent Rules for Optimal Performance
+
+For best results with TaskSync, add these rules to your AI agent configuration:
+
+```
+# MCP TaskSync Server Tool Rules
+
+Strictly follow mcp_tasksync_get_feedback tool descriptions and instructions.
 ```
 
-## 📖 How to Use It
-
-1. **Setup MCP** - Add TaskSync MCP server to your `mcp.json` (you must configure the path to directory or workspace)
-2. **Add Agent Rules** - Configure your AI agent with TaskSync feedback rules:
-	```
-	# MCP TaskSync Server Tool Rules
-	
-	Strictly follow mcp_tasksync_get_feedback tool descriptions and instructions.
-	```
-3. **Create review.md** - Make an empty `review.md` file in your project
-4. **Start chatting** - Agent calls `get_feedback` tool and waits for you to:
-   - Edit `feedback.md` with your task/feedback
-   - Save the file (agent receives the content only after save)
-   - Agent responds and calls `get_feedback` again, waiting for next changes
-   - **To stop:** Write "end" in `feedback.md` and save
+These rules ensure continuous feedback loops and proper error handling.
 
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
-
-
-
-
-
-
-
-
-

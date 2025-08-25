@@ -1,12 +1,12 @@
 {
-  "name": "tasksync-mcp-server",
-  "version": "1.0.1",
+  "name": "tasksync-mcp",
+  "version": "1.0.7",
   "description": "TaskSync MCP server for filesystem access and review feedback",
   "license": "MIT",
   "author": "TaskSync",
   "type": "module",
   "bin": {
-    "tasksync-mcp-server": "dist/index.js"
+    "tasksync-mcp": "dist/index.js"
   },
   "files": [
     "dist"
