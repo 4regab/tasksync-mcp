@@ -1,6 +1,6 @@
 # TaskSync MCP Server
 
-Interactive AI feedback system with file monitoring and media support.
+Interactive feedback system with file monitoring and media support.
 
 ## 🌟 Features
 
@@ -23,15 +23,29 @@ Add to `mcp.json`:
 
 ## 📖 How to Use It
 
-1. **Setup MCP** - Add TaskSync to your `mcp.json` (see Quick Setup above)
+1. **Setup MCP** - Add TaskSync to your `mcp.json` (see Setup above)
 2. **Add Agent Rules** - Configure your AI agent with TaskSync review rules:
    ```
-   Always call ask_review tool and follow TaskSync instructions
+   # MCP TaskSync Review instructions
+   **You will always call this tool afer each task is done, or you need clarification, or you need to ask for more information, or you need to confirm something.**
+
+   Here is the workflow:
+
+   1. You first need to search for the `review.md` file in the workspace before using the tool.
+   2. After searching for the file use the correct file path when calling the `ask_review` tool.
+   3. If an error occurs, retry the tool until it succeeds.
+   4. You are not allowed to end the chat; you must keep this loop forever.
+   5. If `review.md` returns the same content, prompt the user again.
+
+   Success criteria: Always follow the MCP Review instructions.
    ```
 3. **Create review.md** - Make an empty `review.md` file in your project
-4. **Start chatting** - Write tasks in `review.md`, agent will respond to changes
+4. **Start chatting** - Agent calls `ask_review` tool and waits for you to:
+   - Edit `review.md` with your task/feedback
+   - Save the file (agent receives the content only after save)
+   - Agent responds and calls `ask_review` again, waiting for next changes
 
-**To stop:** Write "end" in `review.md`
+**To stop:** Write "end" in `review.md` and save
 
 ## License
 
