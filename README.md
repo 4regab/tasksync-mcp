@@ -26,7 +26,7 @@ Add to `mcp.json`:
   "mcpServers": {
     "tasksync": {
       "command": "npx",
-      "args": ["-y", "tasksync-mcp-server@latest", "/path/to/directory"]
+      "args": ["-y", "tasksync-mcp-server@latest", "/path/to/workspace"]
     }
   }
 }
