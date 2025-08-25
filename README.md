@@ -35,7 +35,7 @@ Add to `mcp.json`:
 
 ## 🔨 Available Tools
 
-- **ask_review** - Read review.md file for task feedback and workflow automation
+- **ask_review** - Read review.md file for user review/feedback
 - **view_media** - Read image/audio files (returns base64 with MIME type)
 
 ## License
