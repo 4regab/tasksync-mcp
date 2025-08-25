@@ -1,24 +1,13 @@
 # TaskSync MCP Server
 
- TaskSync provides tools for interactive user feedback and command execution in AI-assisted development with image view support.
+Interactive AI feedback system with file monitoring and media support.
 
+## 🌟 Features
 
-## 🌟 Key Features
+- **ask_review** - Monitors `review.md` for real-time feedback loops
+- **view_media** - Reads images/audio files (PNG, JPEG, GIF, WebP, BMP, SVG, MP3, WAV, OGG, FLAC)
 
-#### 🔄 Continuous Review Feedback
-- **ask_review** tool that reads `review.md` for real-time feedback
-- File watcher automatically detects changes and notifies waiting processes
-- Essential for iterative development and user feedback loops
-
-#### 🖼️ Media Processing
-- **view_media** tool for images and audio files with base64 encoding
-- Supports image formats: PNG, JPEG, GIF, WebP, BMP, SVG
-- Supports audio formats: MP3, WAV, OGG, FLAC
-- Efficient streaming for large files with proper MIME type detection
-
-## 🛠️ Quick Setup
-
-</details>
+## 🛠️ Setup
 
 Add to `mcp.json`:
 ```json
@@ -26,37 +15,23 @@ Add to `mcp.json`:
   "mcpServers": {
     "tasksync": {
       "command": "npx",
-      "args": ["-y", "tasksync-mcp-server@latest", "/path/to/workspace"]
+      "args": ["-y", "tasksync-mcp@latest", "/path/to/directory"]
     }
   }
 }
 ```
-</details>
 
-## 🔨 Available Tools
+## 📖 How to Use It
 
-- **ask_review** - Read review.md file for user review/feedback
-- **view_media** - Read image/audio files (returns base64 with MIME type)
+1. **Setup MCP** - Add TaskSync to your `mcp.json` (see Quick Setup above)
+2. **Add Agent Rules** - Configure your AI agent with TaskSync review rules:
+   ```
+   Always call ask_review tool and follow TaskSync instructions
+   ```
+3. **Create review.md** - Make an empty `review.md` file in your project
+4. **Start chatting** - Write tasks in `review.md`, agent will respond to changes
 
-## 🛟 Best Practices
-
-### Agent Rules for Optimal Performance
-
-For best results with TaskSync, add these rules to your AI agent configuration:
-
-```
-# MCP TaskSync Review Rules
-
-1. You first need to search for the `review.md` file in the workspace before using the tool.
-2. After searching for the file use the correct file path when calling the `ask_review` tool.
-3. If an error occurs, retry the tool until it succeeds.
-4. You are not allowed to end the chat; you must keep this loop forever.
-5. If `review.md` returns the same content, prompt the user again.
-
-Success criteria: Always follow the MCP TaskSync instructions.
-```
-
-These rules ensure continuous feedback loops and proper error handling.
+**To stop:** Write "end" in `review.md`
 
 ## License
 
