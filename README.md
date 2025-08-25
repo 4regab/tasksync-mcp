@@ -2,8 +2,8 @@
 
  TaskSync provides tools for interactive user feedback and command execution in AI-assisted development with image view support.
 
-[![Install for VS Code](https://img.shields.io/badge/Install%20for-VS%20Code-007ACC?style=for-the-badge&logo=visual-studio-code)](vscode:extension/mcp.tasksync-mcp-server)
-[![Install for VS Code Insiders](https://img.shields.io/badge/Install%20for-VS%20Code%20Insiders-007ACC?style=for-the-badge&logo=visual-studio-code)](vscode-insiders:extension/mcp.tasksync-mcp-server)
+[![Install with NPX in VS Code](https://img.shields.io/badge/Install%20with%20NPX-VS%20Code-007ACC?style=for-the-badge&logo=visual-studio-code)](https://insiders.vscode.dev/redirect/mcp/install?name=tasksync&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22tasksync-mcp-server%22%2C%22%24%7BworkspaceFolder%7D%22%5D%7D)
+[![Install with NPX in VS Code Insiders](https://img.shields.io/badge/Install%20with%20NPX-VS%20Code%20Insiders-007ACC?style=for-the-badge&logo=visual-studio-code)](https://insiders.vscode.dev/redirect/mcp/install?name=tasksync&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22tasksync-mcp-server%22%2C%22%24%7BworkspaceFolder%7D%22%5D%7D&quality=insiders)
 
 
 ## 🌟 Key Features
