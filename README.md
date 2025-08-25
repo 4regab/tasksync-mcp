@@ -15,7 +15,7 @@ Add to `mcp.json`:
   "mcpServers": {
     "tasksync": {
       "command": "npx",
-      "args": ["-y", "tasksync-mcp@latest", "/path/to/workspace"]
+      "args": ["-y", "tasksync-mcp@latest",".", "/path/to/workspace"]
     }
   }
 }
@@ -23,11 +23,16 @@ Add to `mcp.json`:
 
 For VS Code:
 ```json
-	"tasksync": {
-		"command": "npx",
-		"args": [ "-y", "tasksync-mcp@latest","path/to/workspace"],
+		"tasksync": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"tasksync-mcp@latest",
+				"."
+			],
 			"type": "stdio"
-		},
+		}
+	},
 ```
 
 ## 📖 How to Use It
@@ -59,6 +64,7 @@ For VS Code:
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+
 
 
 
