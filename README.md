@@ -19,7 +19,7 @@ This is an MCP server that helps with  feedback-oriented development workflows i
 
 </details>
 
-Add to `mcp.json`:
+Global Setup. Add to `mcp.json`:
 ```json
 {
   "mcpServers": {
@@ -110,6 +110,7 @@ For best results with TaskSync, add these rules to your AI agent configuration:
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+
 
 
 
