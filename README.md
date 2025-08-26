@@ -25,7 +25,7 @@ Global Setup. Add to `mcp.json`:
   "mcpServers": {
     "tasksync": {
       "command": "npx",
-      "args": ["-y", "tasksync-mcp-server@latest", "/path/to/directory"]
+      "args": ["-y", "tasksync-mcp@latest", "/path/to/directory"]
     }
   }
 }
@@ -110,6 +110,7 @@ For best results with TaskSync, add these rules to your AI agent configuration:
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+
 
 
 
