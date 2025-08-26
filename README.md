@@ -98,13 +98,17 @@ graph TD
 
 For best results with TaskSync, add these rules to your AI agent configuration:
 
-```
-# MCP TaskSync Server Tool Rules
+```text
+    # TaskSync get_feedback tool Rules
 
-Strictly follow mcp_tasksync_get_feedback tool usage rule description and instructions. Continue loop forever.
+    USAGE RULES:
+    1. During any process, task, or conversation, whether asking, replying, or completing phased tasks, you must call `get_feedback` tool to ask for feedback.
+    2. Unless receiving termination instructions, all steps must repeatedly call this tool.
+    3. Whenever user feedback is received, if the feedback content is not empty, you must call this tool again and adjust behavior based on the feedback content.
+    4. Only when the user explicitly indicates "end" or "no more interaction needed" can you stop calling this tool, and the process is considered complete.
 ```
-
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+
 
