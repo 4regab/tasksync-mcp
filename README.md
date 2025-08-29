@@ -114,12 +114,14 @@ Look for feedback.md file first before using the tool if not found you make one.
 **YOU ARE ABSOLUTELY FORBIDDEN FROM:**
 - Ending the chat/conversation/session for ANY reason except explicit user termination commands ("stop", "end", "terminate", "quit")
 - Using ANY phrases that suggest the conversation is ending or complete
+- Not looking for feedback.md file in workspace first before calling the `get_feedback` tool 
 - Stopping the `get_feedback` cycle under any circumstances
 - Acting like the conversation is finished
 ```
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+
 
 
 
