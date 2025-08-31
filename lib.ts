@@ -1,6 +1,5 @@
 import fs from "fs/promises";
 import path from "path";
-import os from 'os';
 import { randomBytes } from 'crypto';
 import { createTwoFilesPatch } from 'diff';
 import { minimatch } from 'minimatch';
@@ -34,13 +33,8 @@ export interface SearchOptions {
 export function formatSize(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   if (bytes === 0) return '0 B';
-
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-
-  if (i < 0 || i === 0) return `${bytes} ${units[0]}`;
-
-  const unitIndex = Math.min(i, units.length - 1);
-  return `${(bytes / Math.pow(1024, unitIndex)).toFixed(2)} ${units[unitIndex]}`;
+  const i = Math.max(0, Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1));
+  return i === 0 ? `${bytes} B` : `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
 }
 
 export function normalizeLineEndings(text: string): string {
@@ -65,20 +59,13 @@ export function createUnifiedDiff(originalContent: string, newContent: string, f
 // Security & Validation Functions
 export async function validatePath(requestedPath: string): Promise<string> {
   const expandedPath = expandHome(requestedPath);
-  const absolute = path.isAbsolute(expandedPath)
-    ? path.resolve(expandedPath)
-    : path.resolve(process.cwd(), expandedPath);
-
+  const absolute = path.isAbsolute(expandedPath) ? path.resolve(expandedPath) : path.resolve(process.cwd(), expandedPath);
   const normalizedRequested = normalizePath(absolute);
 
-  // Security: Check if path is within allowed directories before any file operations
-  const isAllowed = isPathWithinAllowedDirectories(normalizedRequested, allowedDirectories);
-  if (!isAllowed) {
+  if (!isPathWithinAllowedDirectories(normalizedRequested, allowedDirectories)) {
     throw new Error(`Access denied - path outside allowed directories: ${absolute} not in ${allowedDirectories.join(', ')}`);
   }
 
-  // Security: Handle symlinks by checking their real path to prevent symlink attacks
-  // This prevents attackers from creating symlinks that point outside allowed directories
   try {
     const realPath = await fs.realpath(absolute);
     const normalizedReal = normalizePath(realPath);
@@ -87,22 +74,19 @@ export async function validatePath(requestedPath: string): Promise<string> {
     }
     return realPath;
   } catch (error) {
-    // Security: For new files that don't exist yet, verify parent directory
-    // This ensures we can't create files in unauthorized locations
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      const parentDir = path.dirname(absolute);
-      try {
-        const realParentPath = await fs.realpath(parentDir);
-        const normalizedParent = normalizePath(realParentPath);
-        if (!isPathWithinAllowedDirectories(normalizedParent, allowedDirectories)) {
-          throw new Error(`Access denied - parent directory outside allowed directories: ${realParentPath} not in ${allowedDirectories.join(', ')}`);
-        }
-        return absolute;
-      } catch {
-        throw new Error(`Parent directory does not exist: ${parentDir}`);
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    
+    const parentDir = path.dirname(absolute);
+    try {
+      const realParentPath = await fs.realpath(parentDir);
+      const normalizedParent = normalizePath(realParentPath);
+      if (!isPathWithinAllowedDirectories(normalizedParent, allowedDirectories)) {
+        throw new Error(`Access denied - parent directory outside allowed directories: ${realParentPath} not in ${allowedDirectories.join(', ')}`);
       }
+      return absolute;
+    } catch {
+      throw new Error(`Parent directory does not exist: ${parentDir}`);
     }
-    throw error;
   }
 }
 
@@ -127,26 +111,17 @@ export async function readFileContent(filePath: string, encoding: string = 'utf-
 
 export async function writeFileContent(filePath: string, content: string): Promise<void> {
   try {
-    // Security: 'wx' flag ensures exclusive creation - fails if file/symlink exists,
-    // preventing writes through pre-existing symlinks
     await fs.writeFile(filePath, content, { encoding: "utf-8", flag: 'wx' });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-      // Security: Use atomic rename to prevent race conditions where symlinks
-      // could be created between validation and write. Rename operations
-      // replace the target file atomically and don't follow symlinks.
-      const tempPath = `${filePath}.${randomBytes(16).toString('hex')}.tmp`;
-      try {
-        await fs.writeFile(tempPath, content, 'utf-8');
-        await fs.rename(tempPath, filePath);
-      } catch (renameError) {
-        try {
-          await fs.unlink(tempPath);
-        } catch { }
-        throw renameError;
-      }
-    } else {
-      throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    
+    const tempPath = `${filePath}.${randomBytes(16).toString('hex')}.tmp`;
+    try {
+      await fs.writeFile(tempPath, content, 'utf-8');
+      await fs.rename(tempPath, filePath);
+    } catch (renameError) {
+      await fs.unlink(tempPath).catch(() => {});
+      throw renameError;
     }
   }
 }
@@ -274,7 +249,7 @@ export async function tailFile(filePath: string, numLines: number): Promise<stri
       if (!bytesRead) break;
 
       // Get the chunk as a string and prepend any remaining text from previous iteration
-      const readData = chunk.slice(0, bytesRead).toString('utf-8');
+      const readData = chunk.subarray(0, bytesRead).toString('utf-8');
       const chunkText = readData + remainingText;
 
       // Split by newlines and count
@@ -314,7 +289,7 @@ export async function headFile(filePath: string, numLines: number): Promise<stri
       const result = await fileHandle.read(chunk, 0, chunk.length, bytesRead);
       if (result.bytesRead === 0) break; // End of file
       bytesRead += result.bytesRead;
-      buffer += chunk.slice(0, result.bytesRead).toString('utf-8');
+      buffer += chunk.subarray(0, result.bytesRead).toString('utf-8');
 
       const newLineIndex = buffer.lastIndexOf('\n');
       if (newLineIndex !== -1) {
@@ -341,7 +316,6 @@ export async function headFile(filePath: string, numLines: number): Promise<stri
 export async function searchFilesWithValidation(
   rootPath: string,
   pattern: string,
-  allowedDirectories: string[],
   options: SearchOptions = {}
 ): Promise<string[]> {
   const { excludePatterns = [] } = options;
@@ -357,20 +331,10 @@ export async function searchFilesWithValidation(
         await validatePath(fullPath);
 
         const relativePath = path.relative(rootPath, fullPath);
-        const shouldExclude = excludePatterns.some(excludePattern =>
-          minimatch(relativePath, excludePattern, { dot: true })
-        );
+        if (excludePatterns.some(excludePattern => minimatch(relativePath, excludePattern, { dot: true }))) continue;
 
-        if (shouldExclude) continue;
-
-        // Use glob matching for the search pattern
-        if (minimatch(relativePath, pattern, { dot: true })) {
-          results.push(fullPath);
-        }
-
-        if (entry.isDirectory()) {
-          await search(fullPath);
-        }
+        minimatch(relativePath, pattern, { dot: true }) && results.push(fullPath);
+        entry.isDirectory() && await search(fullPath);
       } catch {
         continue;
       }

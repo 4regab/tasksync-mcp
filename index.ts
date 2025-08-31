@@ -26,76 +26,39 @@ import {
   setAllowedDirectories,
 } from './lib.js';
 
-// Configuration interface
-interface ServerConfig {
-  // Configuration placeholder - can be extended later
-}
-
 // Parse configuration from environment variables or command line
-function parseConfig(): ServerConfig {
-  const config: ServerConfig = {};
-
-  // Configuration can be added here later
-
-  return config;
-}
-
-const serverConfig = parseConfig();
 
 // Command line argument parsing with embedded mode support
 const args = process.argv.slice(2);
 const useSSE = args.includes('--sse');
-const useEmbedded = args.includes('--embedded') || (!args.includes('--sse') && !args.includes('--stdio'));
 const ssePort = parseInt(args.find(arg => arg.startsWith('--port='))?.split('=')[1] || '3001');
-
-// Filter out mode-specific args
 const directoryArgs = args.filter(arg => 
-  !arg.startsWith('--sse') && 
-  !arg.startsWith('--port=') && 
-  !arg.startsWith('--embedded') && 
-  !arg.startsWith('--stdio')
+  !['--sse', '--embedded', '--stdio'].some(flag => arg.startsWith(flag)) && 
+  !arg.startsWith('--port=')
 );
-
-// Default to stdio mode (standard MCP behavior)
-const serverMode = useSSE ? 'sse' : 'stdio';
 
 // Store allowed directories in normalized and resolved form
 let allowedDirectories: string[] = [];
 
 // Auto-detect current directory if no directories provided
-if (directoryArgs.length === 0) {
-  const currentDir = normalizePath(process.cwd());
-  allowedDirectories = [currentDir];
-  console.error(`Auto-detected allowed directory: ${currentDir}`);
-} else {
-  allowedDirectories = await Promise.all(
-    directoryArgs.map(async (dir) => {
-      const expanded = expandHome(dir);
-      const absolute = path.resolve(expanded);
+allowedDirectories = directoryArgs.length === 0 
+  ? [normalizePath(process.cwd())]
+  : await Promise.all(directoryArgs.map(async (dir) => {
+      const absolute = path.resolve(expandHome(dir));
       try {
-        // Security: Resolve symlinks in allowed directories during startup
-        // This ensures we know the real paths and can validate against them later
-        const resolved = await fs.realpath(absolute);
-        return normalizePath(resolved);
-      } catch (error) {
-        // If we can't resolve (doesn't exist), use the normalized absolute path
-        // This allows configuring allowed dirs that will be created later
+        return normalizePath(await fs.realpath(absolute));
+      } catch {
         return normalizePath(absolute);
       }
-    })
-  );
-}
+    }));
 
-// This is now handled above in the auto-detection logic
+directoryArgs.length === 0 && console.error(`Auto-detected allowed directory: ${allowedDirectories[0]}`);
 
 // Validate that all directories exist and are accessible
 await Promise.all(allowedDirectories.map(async (dir) => {
   try {
     const stats = await fs.stat(dir);
-    if (!stats.isDirectory()) {
-      console.error(`Error: ${dir} is not a directory`);
-      process.exit(1);
-    }
+    if (!stats.isDirectory()) throw new Error(`${dir} is not a directory`);
   } catch (error) {
     console.error(`Error accessing directory ${dir}:`, error);
     process.exit(1);
@@ -135,7 +98,34 @@ const ReadImageFileArgsSchema = z.object({
 const ToolInputSchema = ToolSchema.shape.inputSchema;
 type ToolInput = z.infer<typeof ToolInputSchema>;
 
+function formatResponseWithHeadTail(content: string, head?: number, tail?: number): { content: { type: "text", text: string }[] } {
+  if (head && tail) {
+    throw new Error("Cannot specify both head and tail parameters simultaneously");
+  }
+
+  if (tail) {
+    const lines = content.split('\n');
+    const tailLines = lines.slice(-tail);
+    return {
+      content: [{ type: "text", text: tailLines.join('\n') }],
+    };
+  }
+
+  if (head) {
+    const lines = content.split('\n');
+    const headLines = lines.slice(0, head);
+    return {
+      content: [{ type: "text", text: headLines.join('\n') }],
+    };
+  }
+
+  return {
+    content: [{ type: "text", text: content }],
+  };
+}
+
 // Server setup
+
 const server = new Server(
   {
     name: "tasksync-server",
@@ -151,113 +141,93 @@ const server = new Server(
 
 // Lazy initialization for file watcher
 async function ensureInitialized() {
-  if (!isInitialized) {
-    console.error("Initializing TaskSync server components...");
-    const defaultFeedbackPath = path.join(process.cwd(), 'feedback.md');
-    await setupFileWatcher(defaultFeedbackPath, true);
-    isInitialized = true;
-    console.error("TaskSync server initialized successfully");
-  }
+  if (isInitialized) return;
+  console.error("Initializing TaskSync server components...");
+  await setupFileWatcher(path.join(process.cwd(), 'feedback.md'), true);
+  isInitialized = true;
+  console.error("TaskSync server initialized successfully");
 }
 
 // File watching functions
 async function setupFileWatcher(filePath: string, createIfMissing: boolean = false) {
-  const reviewPath = filePath;
-
   try {
     // Check if file exists, create if it doesn't
     try {
-      await fs.access(reviewPath);
-      console.error(`File exists: ${reviewPath}`);
+      await fs.access(filePath);
+      console.error(`File exists: ${filePath}`);
     } catch {
-      if (createIfMissing) {
-        console.error(`Creating file: ${reviewPath}`);
-        await fs.mkdir(path.dirname(reviewPath), { recursive: true });
-        await fs.writeFile(reviewPath, 'No review content yet.');
-      } else {
-        // If not creating, just skip watcher setup for missing file
-        console.error(`File does not exist, skipping watcher: ${reviewPath}`);
+      if (!createIfMissing) {
+        console.error(`File does not exist, skipping watcher: ${filePath}`);
         return;
       }
+      console.error(`Creating file: ${filePath}`);
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, 'No review content yet.');
     }
 
-    // Get initial modification time
-    const stats = await fs.stat(reviewPath);
+    // Get initial modification time and setup watcher
+    const stats = await fs.stat(filePath);
     const mtime = stats.mtime.getTime();
-    lastFileModifiedByPath.set(reviewPath, mtime);
-    console.error(`Initial file modification time for ${reviewPath}: ${mtime}`);
+    lastFileModifiedByPath.set(filePath, mtime);
+    console.error(`Initial file modification time for ${filePath}: ${mtime}`);
 
-    // Setup file watcher
-    if (!fileWatchers.has(reviewPath)) {
-      const watcher = watch(reviewPath, async (eventType, filename) => {
-        console.error(`File watcher event: ${eventType} for ${filename}`);
-        if (eventType === 'change') {
-          console.error(`File change detected for ${reviewPath}, notifying clients...`);
-          await notifyClientsOfFileChange(reviewPath);
-        }
+    if (!fileWatchers.has(filePath)) {
+      const watcher = watch(filePath, async (eventType) => {
+        console.error(`File watcher event: ${eventType} for ${filePath}`);
+        eventType === 'change' && await notifyClientsOfFileChange(filePath);
       });
-      fileWatchers.set(reviewPath, watcher);
-      console.error(`File watcher setup successfully for: ${reviewPath}`);
+      fileWatchers.set(filePath, watcher);
+      console.error(`File watcher setup successfully for: ${filePath}`);
     }
   } catch (error) {
     console.error(`Failed to setup file watcher: ${error}`);
-    throw error; // Re-throw to see the error in the main process
+    throw error;
   }
 }
 
 async function notifyClientsOfFileChange(filePath: string) {
   try {
-    const reviewPath = filePath;
-    const stats = await fs.stat(reviewPath);
+    const stats = await fs.stat(filePath);
     const currentModified = stats.mtime.getTime();
 
-    if (lastFileModifiedByPath.get(reviewPath) === currentModified) {
-      return; // No actual change
-    }
+    if (lastFileModifiedByPath.get(filePath) === currentModified) return;
 
-    console.error(`File change detected for ${reviewPath}: ${lastFileModifiedByPath.get(reviewPath)} -> ${currentModified}`);
-    lastFileModifiedByPath.set(reviewPath, currentModified);
-    const content = await readFileContent(reviewPath);
+    console.error(`File change detected for ${filePath}: ${lastFileModifiedByPath.get(filePath)} -> ${currentModified}`);
+    lastFileModifiedByPath.set(filePath, currentModified);
+    const content = await readFileContent(filePath);
 
-    // Resolve all waiting check_review calls
-    const remaining: typeof waitingForFileChange = [];
-    let resolvedCount = 0;
-    for (const item of waitingForFileChange) {
-      if (item.path === reviewPath) {
-        item.resolve(content);
-        resolvedCount++;
-      } else {
-        remaining.push(item);
-      }
-    }
-    // Replace queue with remaining items
-    waitingForFileChange.length = 0;
-    waitingForFileChange.push(...remaining);
-    console.error(`Resolving ${resolvedCount} waiting calls for ${reviewPath}`);
+    // Resolve waiting calls and filter remaining
+    const { resolved, remaining } = waitingForFileChange.reduce(
+      (acc, item) => {
+        item.path === filePath ? (item.resolve(content), acc.resolved++) : acc.remaining.push(item);
+        return acc;
+      },
+      { resolved: 0, remaining: [] as typeof waitingForFileChange }
+    );
+    
+    waitingForFileChange.splice(0, waitingForFileChange.length, ...remaining);
+    console.error(`Resolving ${resolved} waiting calls for ${filePath}`);
 
-    // Send notification to all connected clients
-    for (const transport of connectedTransports) {
-      try {
-        await transport.send({
-          jsonrpc: "2.0",
-          method: "notifications/message",
-          params: {
-            level: "info",
-            logger: "tasksync-server",
-            data: {
-              type: "file_changed",
-              path: path.relative(process.cwd(), reviewPath) || reviewPath,
-              content: content,
-              timestamp: new Date().toISOString()
-            }
+    // Send notifications to all connected clients
+    const notifications = connectedTransports.size;
+    await Promise.allSettled([...connectedTransports].map(transport =>
+      transport.send({
+        jsonrpc: "2.0",
+        method: "notifications/message",
+        params: {
+          level: "info",
+          logger: "tasksync-server",
+          data: {
+            type: "file_changed",
+            path: path.relative(process.cwd(), filePath) || filePath,
+            content,
+            timestamp: new Date().toISOString()
           }
-        });
-      } catch (error) {
-        console.error(`Failed to send notification to client: ${error}`);
-      }
-    }
+        }
+      }).catch(error => console.error(`Failed to send notification to client: ${error}`))
+    ));
 
-    console.error(`File change notification sent to ${connectedTransports.size} clients and ${resolvedCount} waiting calls resolved for ${reviewPath}`);
+    console.error(`File change notification sent to ${notifications} clients and ${resolved} waiting calls resolved for ${filePath}`);
   } catch (error) {
     console.error(`Error in notifyClientsOfFileChange: ${error}`);
   }
@@ -335,15 +305,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error(`Invalid arguments for get_feedback: ${parsed.error}`);
         }
         // Determine path: use provided path if any, else default to ./feedback.md
-        const providedPath = parsed.data.path;
-        const targetPath = providedPath ? providedPath : path.join(process.cwd(), 'feedback.md');
+        const targetPath = parsed.data.path || path.join(process.cwd(), 'feedback.md');
         
         // Create feedback.md file if it doesn't exist (only for default feedback.md, not custom paths)
-        if (!providedPath) {
+        if (!parsed.data.path) {
           try {
             await fs.access(targetPath);
           } catch (error) {
-            // File doesn't exist, create it with empty content
             if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
               try {
                 await fs.writeFile(targetPath, '', 'utf-8');
@@ -357,16 +325,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         
         const validPath = await validatePath(targetPath);
-
-  // Get current file stats
-  const stats = await fs.stat(validPath);
+        const stats = await fs.stat(validPath);
         const currentModified = stats.mtime.getTime();
 
-  // Ensure a watcher exists for this path (do not create file if missing)
-  await setupFileWatcher(validPath, false);
+        // Ensure a watcher exists for this path (do not create file if missing)
+        await setupFileWatcher(validPath, false);
 
-  const lastKnown = lastFileModifiedByPath.get(validPath) ?? null;
-  console.error(`check_review: Current file modified: ${currentModified}, Last known: ${lastKnown}`);
+        const lastKnown = lastFileModifiedByPath.get(validPath) ?? null;
+        console.error(`check_review: Current file modified: ${currentModified}, Last known: ${lastKnown}`);
 
         // If this is the first call or file has changed, return content immediately
         if (lastKnown === null || lastKnown < currentModified) {
@@ -377,24 +343,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             throw new Error("Cannot specify both head and tail parameters simultaneously");
           }
 
-          if (parsed.data.tail) {
-            const tailContent = await tailFile(validPath, parsed.data.tail);
-            return {
-              content: [{ type: "text", text: tailContent }],
-            };
-          }
+          const content = parsed.data.tail ? await tailFile(validPath, parsed.data.tail)
+                        : parsed.data.head ? await headFile(validPath, parsed.data.head)
+                        : await readFileContent(validPath);
 
-          if (parsed.data.head) {
-            const headContent = await headFile(validPath, parsed.data.head);
-            return {
-              content: [{ type: "text", text: headContent }],
-            };
-          }
-
-          const content = await readFileContent(validPath);
-          return {
-            content: [{ type: "text", text: content }],
-          };
+          return { content: [{ type: "text", text: content }] };
         }
 
         // File hasn't changed - wait for file change using file watcher
@@ -428,91 +381,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           console.error(`check_review: Updated waiting queue size: ${waitingForFileChange.length}`);
         });
 
-        // Apply head/tail filtering if requested
-        if (parsed.data.head && parsed.data.tail) {
-          throw new Error("Cannot specify both head and tail parameters simultaneously");
-        }
+        return formatResponseWithHeadTail(content, parsed.data.head, parsed.data.tail);
 
-        if (parsed.data.tail) {
-          const lines = content.split('\n');
-          const tailLines = lines.slice(-parsed.data.tail);
-          return {
-            content: [{ type: "text", text: tailLines.join('\n') }],
-          };
-        }
-
-        if (parsed.data.head) {
-          const lines = content.split('\n');
-          const headLines = lines.slice(0, parsed.data.head);
-          return {
-            content: [{ type: "text", text: headLines.join('\n') }],
-          };
-        }
-
-        return {
-          content: [{ type: "text", text: content }],
-        };
-
-        // This code is temporarily disabled while we fix the file watcher
-        // It will be re-enabled once the blocking mechanism works properly
-        /*
-        // File hasn't changed - wait for file change
-        console.error("check_review: Waiting for file change...");
-        console.error(`Current waiting queue size: ${waitingForFileChange.length}`);
-        console.error(`File watcher status: ${fileWatcher ? 'ACTIVE' : 'INACTIVE'}`);
-
-        const content = await new Promise<string>((resolve, reject) => {
-          // Add timeout to prevent infinite waiting
-          const timeout = setTimeout(() => {
-            const index = waitingForFileChange.findIndex(w => w.resolve === resolve);
-            if (index !== -1) {
-              waitingForFileChange.splice(index, 1);
-            }
-            console.error("check_review: Timeout reached, rejecting promise");
-            reject(new Error("Timeout waiting for file change (60 seconds)"));
-          }, 60000); // 60 second timeout
-
-          console.error("check_review: Adding to waiting queue");
-          waitingForFileChange.push({
-            resolve: (content: string) => {
-              console.error("check_review: Promise resolved with content");
-              clearTimeout(timeout);
-              resolve(content);
-            },
-            reject: (error: Error) => {
-              console.error(`check_review: Promise rejected with error: ${error.message}`);
-              clearTimeout(timeout);
-              reject(error);
-            }
-          });
-          console.error(`Updated waiting queue size: ${waitingForFileChange.length}`);
-        });
-
-        // Apply head/tail filtering if requested
-        if (parsed.data.head && parsed.data.tail) {
-          throw new Error("Cannot specify both head and tail parameters simultaneously");
-        }
-
-        if (parsed.data.tail) {
-          const lines = content.split('\n');
-          const tailLines = lines.slice(-parsed.data.tail);
-          return {
-            content: [{ type: "text", text: tailLines.join('\n') }],
-          };
-        }
-
-        if (parsed.data.head) {
-          const lines = content.split('\n');
-          const headLines = lines.slice(0, parsed.data.head);
-          return {
-            content: [{ type: "text", text: headLines.join('\n') }],
-          };
-        }
-
-        return {
-          content: [{ type: "text", text: content }],
-        };
-        */
+        
       }
 
       case "view_media": {
@@ -635,7 +506,7 @@ async function runSSEServer() {
   app.use(express.json());
 
   // SSE endpoint
-  app.get("/sse", async (req, res) => {
+  app.get("/sse", async (_, res) => {
     const transport = new SSEServerTransport('/messages', res);
     connectedTransports.add(transport);
 
@@ -661,7 +532,7 @@ async function runSSEServer() {
   });
 
   // Health check endpoint
-  app.get("/health", (req, res) => {
+  app.get("/health", (_, res) => {
     res.json({
       status: "ok",
       server: "tasksync-mcp",

@@ -1,7 +1,7 @@
 import { promises as fs, type Stats } from 'fs';
 import path from 'path';
 import os from 'os';
-import { normalizePath } from './path-utils.js';
+import { normalizePath, expandHome } from './path-utils.js';
 import type { Root } from '@modelcontextprotocol/sdk/types.js';
 
 /**
@@ -12,14 +12,10 @@ import type { Root } from '@modelcontextprotocol/sdk/types.js';
 async function parseRootUri(rootUri: string): Promise<string | null> {
   try {
     const rawPath = rootUri.startsWith('file://') ? rootUri.slice(7) : rootUri;
-    const expandedPath = rawPath.startsWith('~/') || rawPath === '~' 
-      ? path.join(os.homedir(), rawPath.slice(1)) 
-      : rawPath;
-    const absolutePath = path.resolve(expandedPath);
-    const resolvedPath = await fs.realpath(absolutePath);
-    return normalizePath(resolvedPath);
+    const expandedPath = expandHome(rawPath);
+    return normalizePath(await fs.realpath(path.resolve(expandedPath)));
   } catch {
-    return null; // Path doesn't exist or other error
+    return null;
   }
 }
 
@@ -31,11 +27,7 @@ async function parseRootUri(rootUri: string): Promise<string | null> {
  * @returns Formatted error message
  */
 function formatDirectoryError(dir: string, error?: unknown, reason?: string): string {
-  if (reason) {
-    return `Skipping ${reason}: ${dir}`;
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  return `Skipping invalid directory: ${dir} due to error: ${message}`;
+  return reason ? `Skipping ${reason}: ${dir}` : `Skipping invalid directory: ${dir} due to error: ${error instanceof Error ? error.message : String(error)}`;
 }
 
 /**
@@ -48,9 +40,7 @@ function formatDirectoryError(dir: string, error?: unknown, reason?: string): st
  * @param requestedRoots - Array of root specifications with URI and optional name
  * @returns Promise resolving to array of validated directory paths
  */
-export async function getValidRootDirectories(
-  requestedRoots: readonly Root[]
-): Promise<string[]> {
+export async function getValidRootDirectories(requestedRoots: readonly Root[]): Promise<string[]> {
   const validatedDirectories: string[] = [];
   
   for (const requestedRoot of requestedRoots) {
@@ -62,11 +52,7 @@ export async function getValidRootDirectories(
     
     try {
       const stats: Stats = await fs.stat(resolvedPath);
-      if (stats.isDirectory()) {
-        validatedDirectories.push(resolvedPath);
-      } else {
-        console.error(formatDirectoryError(resolvedPath, undefined, 'non-directory root'));
-      }
+      stats.isDirectory() ? validatedDirectories.push(resolvedPath) : console.error(formatDirectoryError(resolvedPath, undefined, 'non-directory root'));
     } catch (error) {
       console.error(formatDirectoryError(resolvedPath, error));
     }
