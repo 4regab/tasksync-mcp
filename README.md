@@ -19,18 +19,8 @@ This is an MCP server that helps with  feedback-oriented development workflows i
 
 </details>
 
-Global Setup. Add to `mcp.json`:
-```json
-{
-  "mcpServers": {
-    "tasksync": {
-      "command": "npx",
-      "args": ["-y", "tasksync-mcp@latest", "/path/to/directory"]
-    }
-  }
-}
-```
-For VS Code:
+Add to `mcp.json`:
+
 ```json
  {
     "servers": {
@@ -48,7 +38,7 @@ For VS Code:
 ## 🔨 Available Tools
 
 - **get_feedback** - Read feedback.md file for user review/feedback (creates file if missing)
-- **view_media** - Read image (returns base64 with MIME type)
+- **view_media** - View image (useful for fixing UI/UX issues, just add the image to workspace)
 
 
 ## Workflow Example
@@ -121,6 +111,7 @@ Look for feedback.md file first before using the tool if not found you make one.
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+
 
 
 
