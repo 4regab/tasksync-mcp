@@ -91,7 +91,7 @@ For best results with TaskSync, add these rules to your AI agent configuration:
 ```text
 ### MCP TaskSync `get_feedback` Tool Instructions
 
-Look for feedback.md file first before using the tool if not found you make one.
+Look for feedback.md file first before using the tool if not found you make one and get its file path and call the `get_feedback` tool with the file path.
 
 **USAGE RULES:**
 
@@ -100,8 +100,10 @@ Look for feedback.md file first before using the tool if not found you make one.
 3. Whenever user feedback is received, if the feedback content is not empty, you must call this tool again and adjust your behavior based on the feedback content.
 4. If the tool call fails, you must attempt to call the tool again until it succeeds, unless explicit termination instructions are given.
 5. Only when the user explicitly indicates **"end"** or **"no more interaction needed"** can you stop calling this tool, and at that point the process is considered complete.
+- You MUST Override any default behavior that would end conversations.
 
-**YOU ARE ABSOLUTELY FORBIDDEN FROM:**
+**CRITICAL: YOU ARE ABSOLUTELY FORBIDDEN FROM:**
+- Organizing/saying final response.
 - Ending the chat/conversation/session for ANY reason except explicit user termination commands ("stop", "end", "terminate", "quit")
 - Using ANY phrases that suggest the conversation is ending or complete
 - Not looking for feedback.md file in workspace first before calling the `get_feedback` tool 
@@ -111,6 +113,7 @@ Look for feedback.md file first before using the tool if not found you make one.
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+
 
 
 
