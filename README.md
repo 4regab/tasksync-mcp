@@ -2,6 +2,10 @@
 
 This is an MCP server that helps with  feedback-oriented development workflows in AI-assisted development by letting users give feedback while the agent is working. It uses the `get_feedback` tool to collect your input from the `feedback.md` file in the workspace, which is sent back to the agent when you save. By guiding the AI with feedback instead of letting it make speculative operations, it reduces costly requests and makes development more efficient. With an additional tool that allows the agent to view images in the workspace. 
 
+<a href="https://glama.ai/mcp/servers/@4regab/tasksync-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@4regab/tasksync-mcp/badge" alt="tasksync-mcp MCP server" />
+</a>
+
 ## 🌟 Key Features
 
 #### 🔄 Continuous Review Feedback
@@ -113,13 +117,3 @@ Look for feedback.md file first before using the tool if not found you make one 
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
-
-
-
-
-
-
-
-
-
-
