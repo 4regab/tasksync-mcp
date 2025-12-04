@@ -12,6 +12,7 @@ This is an MCP server that helps with  feedback-oriented development workflows i
 - **get_feedback** tool that reads `feedback.md` for real-time feedback
 - Automatically creates `feedback.md` if it doesn't exist in the workspace
 - File watcher automatically detects changes and notifies waiting processes
+- Configurable timeout (default: 5 mins) for waiting on user input
 - Essential for iterative development and user feedback loops
 
 #### 🖼️ Media Processing
@@ -31,11 +32,14 @@ Add to `mcp.json`:
         "tasksync": {
         "command": "npx",
         "type": "stdio",
-        "args": ["-y", "tasksync-mcp@latest", "/path/to/directory"]
+        "args": ["-y", "tasksync-mcp@latest", "/path/to/directory", "--timeout=300000"]
         }
     }
 }
 ```
+
+**Configuration Options:**
+- `--timeout=N`: Set the timeout in milliseconds for waiting for feedback (default: 300000ms / 5 minutes)
 
 </details>
 
