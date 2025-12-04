@@ -26,6 +26,7 @@ import {
   setAllowedDirectories,
 } from './lib.js';
 
+const DEFAULT_TIMEOUT = 300000; // 5 minutes
 // Parse configuration from environment variables or command line
 
 // Command line argument parsing with embedded mode support
@@ -36,6 +37,9 @@ const directoryArgs = args.filter(arg =>
   !['--sse', '--embedded', '--stdio'].some(flag => arg.startsWith(flag)) && 
   !arg.startsWith('--port=')
 );
+const timeoutArg = args.find(arg => arg.startsWith('--timeout='));
+const parsedTimeout = timeoutArg ? parseInt(timeoutArg.split('=')[1]) : NaN;
+const feedbackTimeout = !isNaN(parsedTimeout) ? parsedTimeout : DEFAULT_TIMEOUT;
 
 // Store allowed directories in normalized and resolved form
 let allowedDirectories: string[] = [];
@@ -360,9 +364,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             if (index !== -1) {
               waitingForFileChange.splice(index, 1);
             }
-            console.error("check_review: Timeout reached after 5 minutes");
-            reject(new Error("Timeout waiting for file change (5 minutes)"));
-          }, 300000); // 5 minute timeout
+            console.error(`check_review: Timeout reached after ${feedbackTimeout}ms`);
+            reject(new Error(`Timeout waiting for file change (${feedbackTimeout}ms)`));
+          }, feedbackTimeout);
 
           console.error("check_review: Adding to waiting queue");
           waitingForFileChange.push({
